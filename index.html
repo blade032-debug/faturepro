@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="FacturePro">
 <title>FacturePro</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--blue:#1d4ed8;--blue-dark:#1e3a8a;--blue-light:#dbeafe;--green:#16a34a;--red:#dc2626;--orange:#ea580c;--gray-50:#f8fafc;--gray-100:#f1f5f9;--gray-200:#e2e8f0;--gray-300:#cbd5e1;--gray-400:#94a3b8;--gray-500:#64748b;--gray-600:#475569;--gray-700:#334155;--gray-800:#1e293b;--white:#fff;--sidebar:218px;--topbar:56px;--bnav:64px;--radius:12px}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -204,7 +206,7 @@ select.fc{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 const SK={a:'fp_admin',c:'fp_clients',s:'fp_services',i:'fp_invoices',q:'fp_quotes',e:'fp_expenses',et:'fp_exptypes',m:'fp_mile'};
 const ld=k=>{try{return JSON.parse(localStorage.getItem(k))||null}catch{return null}};
 const sv=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
-const gA=()=>ld(SK.a)||{name:'',company:'',address:'',city:'',province:'QC',postal:'',email:'',phone:'',tpsNum:'',tvqNum:'',anthropicKey:'',cloudName:'',cloudPreset:'',ejsServiceId:'',ejsTemplateId:'',ejsPublicKey:'',onboarded:false};
+const gA=()=>ld(SK.a)||{name:'',company:'',address:'',city:'',province:'QC',postal:'',email:'',phone:'',tpsNum:'',tvqNum:'',anthropicKey:'',cloudName:'',cloudPreset:'',ejsServiceId:'',ejsTemplateId:'',ejsPublicKey:'',msgFR:'Bonjour {clientName},\n\nVeuillez trouver ci-joint la facture {num} pour l\'événement « {evtName} » prévu le {evtDate}.\n\nMontant total : {total}\nPaiement dû : {dueLabel}\n\nPour toute question, n\'hésitez pas à me contacter.\n\nCordialement,\n{name}\n{phone}\n{email}',msgEN:'Hello {clientName},\n\nPlease find attached invoice {num} for "{evtName}" on {evtDate}.\n\nTotal: {total}\nPayment due: {dueLabel}\n\nFeel free to contact me.\n\nBest regards,\n{name}\n{phone}\n{email}',msgRemFR:'Bonjour {clientName},\n\nNous vous rappelons amicalement que la facture {num} pour l\'événement « {evtName} » prévu le {evtDate} d\'un montant de {total} est toujours en attente.\n\nPaiement dû : {dueLabel}\n\nMerci,\n{name}\n{phone}\n{email}',msgRemEN:'Hello {clientName},\n\nFriendly reminder: invoice {num} for "{evtName}" on {evtDate} totaling {total} is still outstanding.\n\nPayment due: {dueLabel}\n\nThank you,\n{name}\n{phone}\n{email}',onboarded:false};
 const gC=()=>ld(SK.c)||[];
 const gSvc=()=>ld(SK.s)||[{id:1,name:'Animation / DJ',price:500},{id:2,name:'Éclairage',price:250},{id:3,name:'Déplacement',price:0}];
 const gI=()=>ld(SK.i)||[];
@@ -369,8 +371,8 @@ function viewInv(num){
     </div>
     <div class="ma np" style="flex-wrap:wrap;gap:8px">
       ${paidBtn}
-      <button class="btn bs bsm" onclick="window.print()">🖨 PDF</button>
-      <button class="btn bs bsm" onclick="emailInv('${inv.num}')">📧 Envoyer</button>
+      <button class="btn bs bsm" onclick="printOneInv('${inv.num}')">🖨 PDF</button>
+      <button class="btn bp bsm" onclick="emailInv('${inv.num}')">📧 Envoyer avec PDF</button>
       <button class="btn bs bsm" onclick="remInv('${inv.num}')">🔔 Rappel</button>
       <button class="btn bs bsm" onclick="editInv('${inv.num}')">✏️ Modifier</button>
       <button class="btn br2 bsm" onclick="delInv('${inv.num}')">🗑</button>
@@ -384,14 +386,165 @@ function delInv(num){if(!confirm('Supprimer cette facture ?'))return;sv(SK.i,gI(
 function editInv(num){closeM();const inv=gI().find(i=>i.num===num);if(inv)showInvWiz(inv);}
 
 // ═══ EMAIL ═══
-function emailBody(inv,a,type='invoice'){
-  const lang=inv.lang||'fr';const d=fD(inv.evtDate,lang);
-  if(type==='reminder'){
-    if(lang==='fr')return`Bonjour ${inv.clientName},\n\nNous vous rappelons amicalement que la facture ${inv.num} pour l'événement « ${inv.evtName} » prévu le ${d} d'un montant de ${f$(inv.total)} est toujours en attente.\n\nPaiement dû : ${inv.dueLabel}\n\nMerci,\n${a.name}\n${a.phone}\n${a.email}`;
-    return`Hello ${inv.clientName},\n\nFriendly reminder: invoice ${inv.num} for "${inv.evtName}" on ${d} totaling ${f$(inv.total)} is still outstanding.\n\nPayment due: ${inv.dueLabel}\n\nThank you,\n${a.name}\n${a.phone}\n${a.email}`;
+function printOneInv(num,cb=null){
+  const inv=gI().find(i=>i.num===num);if(!inv)return;
+  const a=gA();const lang=inv.lang||'fr';
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+  const W=215.9,H=279.4;
+  const blue=[29,78,216],gray=[100,116,139],dark=[30,41,59],light=[241,245,249],white=[255,255,255],green=[22,163,74];
+
+  // Background header band
+  doc.setFillColor(...blue);
+  doc.rect(0,0,W,42,'F');
+
+  // FACTURE title
+  doc.setTextColor(...white);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(28);
+  doc.text(lang==='en'?'INVOICE':'FACTURE',14,22);
+
+  // Invoice number + date
+  doc.setFontSize(11);
+  doc.setFont('helvetica','normal');
+  doc.text(inv.num,14,32);
+  doc.text((lang==='fr'?'Date événement: ':'Event date: ')+fD(inv.evtDate,lang),14,39);
+
+  // Status badge
+  const stLabel={paid:lang==='fr'?'PAYÉE':'PAID',unpaid:lang==='fr'?'IMPAYÉE':'UNPAID',draft:lang==='fr'?'BROUILLON':'DRAFT'};
+  const stColor={paid:green,unpaid:[234,88,12],draft:gray};
+  const st=stLabel[inv.status]||inv.status.toUpperCase();
+  doc.setFillColor(...(stColor[inv.status]||gray));
+  doc.roundedRect(W-50,8,36,12,3,3,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.setTextColor(...white);
+  doc.text(st,W-32,16,{align:'center'});
+
+  // FROM block
+  doc.setTextColor(...dark);
+  doc.setFont('helvetica','bold');doc.setFontSize(11);
+  doc.text(a.company||a.name,14,56);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+  let fromY=62;
+  if(a.address){doc.text(a.address,14,fromY);fromY+=5;}
+  if(a.city){doc.text([a.city,a.province,a.postal].filter(Boolean).join(' '),14,fromY);fromY+=5;}
+  if(a.phone){doc.text(a.phone,14,fromY);fromY+=5;}
+  if(a.email){doc.text(a.email,14,fromY);fromY+=5;}
+  if(a.tpsNum){doc.text('TPS: '+a.tpsNum,14,fromY);fromY+=5;}
+  if(a.tvqNum){doc.text('TVQ: '+a.tvqNum,14,fromY);fromY+=5;}
+
+  // TO block (right side)
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...blue);
+  doc.text(lang==='en'?'BILL TO':'FACTURER À',W-80,52);
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...dark);
+  doc.text(inv.clientName||'—',W-80,59);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+  let toY=65;
+  if(inv.clientAddr){doc.text(inv.clientAddr,W-80,toY);toY+=5;}
+  if(inv.clientCity){doc.text(inv.clientCity,W-80,toY);toY+=5;}
+  if(inv.clientEmail){doc.text(inv.clientEmail,W-80,toY);toY+=5;}
+  if(inv.clientPhone){doc.text(inv.clientPhone,W-80,toY);toY+=5;}
+
+  // Event info box
+  const infoY=Math.max(fromY,toY)+6;
+  doc.setFillColor(...light);
+  doc.roundedRect(14,infoY,W-28,22,3,3,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...blue);
+  doc.text(lang==='en'?'EVENT':'ÉVÉNEMENT',18,infoY+7);
+  doc.text(lang==='en'?'DUE':'DÛ',90,infoY+7);
+  doc.text(lang==='en'?'STATUS':'STATUT',150,infoY+7);
+  doc.setFont('helvetica','normal');doc.setTextColor(...dark);doc.setFontSize(10);
+  doc.text(inv.evtName||'—',18,infoY+15);
+  doc.text(inv.dueLabel||'—',90,infoY+15);
+  doc.text(stLabel[inv.status]||inv.status,150,infoY+15);
+
+  // Services table
+  const tableY=infoY+28;
+  const rows=(inv.lines||[]).map(l=>[l.name,f$(l.amount)]);
+  if(inv.gas)rows.push([lang==='en'?'Gas':'Essence',f$(inv.gasAmt)]);
+  if(inv.km)rows.push([lang==='en'?`Mileage (${inv.kmCount} km × $${inv.kmRate})`:`Kilométrage (${inv.kmCount} km × ${inv.kmRate}$/km)`,f$(inv.kmCount*inv.kmRate)]);
+
+  doc.autoTable({
+    startY:tableY,
+    head:[[lang==='en'?'DESCRIPTION':'DESCRIPTION',lang==='en'?'AMOUNT':'MONTANT']],
+    body:rows,
+    margin:{left:14,right:14},
+    styles:{fontSize:10,cellPadding:4,textColor:dark},
+    headStyles:{fillColor:blue,textColor:white,fontStyle:'bold',fontSize:9},
+    columnStyles:{1:{halign:'right',cellWidth:40}},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    tableLineColor:[226,232,240],tableLineWidth:0.1,
+  });
+
+  // Totals
+  let totY=doc.lastAutoTable.finalY+8;
+  const totW=90;const totX=W-14-totW;
+  if(inv.taxable){
+    doc.setFillColor(...light);doc.rect(totX,totY,totW,8,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+    doc.text(lang==='en'?'Subtotal':'Sous-total',totX+4,totY+5.5);
+    doc.text(f$(inv.sub),W-18,totY+5.5,{align:'right'});totY+=9;
+    doc.setFillColor(...light);doc.rect(totX,totY,totW,8,'F');
+    doc.text('TPS (5%)',totX+4,totY+5.5);doc.text(f$(inv.tpsA),W-18,totY+5.5,{align:'right'});totY+=9;
+    doc.setFillColor(...light);doc.rect(totX,totY,totW,8,'F');
+    doc.text('TVQ (9.975%)',totX+4,totY+5.5);doc.text(f$(inv.tvqA),W-18,totY+5.5,{align:'right'});totY+=9;
   }
-  if(lang==='fr')return`Bonjour ${inv.clientName},\n\nVeuillez trouver ci-joint la facture ${inv.num} pour l'événement « ${inv.evtName} » prévu le ${d}.\n\nMontant total : ${f$(inv.total)}\nPaiement dû : ${inv.dueLabel}\n\nPour toute question, n'hésitez pas à me contacter.\n\nCordialement,\n${a.name}\n${a.phone}\n${a.email}`;
-  return`Hello ${inv.clientName},\n\nPlease find attached invoice ${inv.num} for "${inv.evtName}" on ${d}.\n\nTotal: ${f$(inv.total)}\nPayment due: ${inv.dueLabel}\n\nFeel free to contact me.\n\nBest regards,\n${a.name}\n${a.phone}\n${a.email}`;
+  // Total line
+  doc.setFillColor(...blue);doc.rect(totX,totY,totW,12,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...white);
+  doc.text('TOTAL',totX+4,totY+8.5);
+  doc.text(f$(inv.total),W-18,totY+8.5,{align:'right'});totY+=16;
+
+  // Notes
+  if(inv.cmts){
+    doc.setFillColor(...light);doc.roundedRect(14,totY,W-28,18,3,3,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...blue);
+    doc.text(lang==='en'?'NOTES':'NOTES',18,totY+7);
+    doc.setFont('helvetica','normal');doc.setTextColor(...dark);
+    doc.text(inv.cmts,18,totY+13,{maxWidth:W-36});totY+=22;
+  }
+
+  // Footer
+  doc.setDrawColor(...light);doc.setLineWidth(0.5);doc.line(14,H-20,W-14,H-20);
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...gray);
+  doc.text((a.company||a.name)+' • '+(a.email||'')+' • '+(a.phone||''),W/2,H-14,{align:'center'});
+
+  // Share / save
+  const pdfBlob=doc.output('blob');
+  const fname=`${lang==='en'?'Invoice':'Facture'}-${inv.num}.pdf`;
+  if(cb){cb(pdfBlob);return;}
+  if(navigator.share&&navigator.canShare&&navigator.canShare({files:[new File([pdfBlob],fname,{type:'application/pdf'})]})){
+    navigator.share({files:[new File([pdfBlob],fname,{type:'application/pdf'})],title:fname}).catch(()=>{});
+  } else {
+    const url=URL.createObjectURL(pdfBlob);
+    const a2=document.createElement('a');a2.href=url;a2.download=fname;a2.click();
+  }
+}
+function generatePDF(inv,a,cb){printOneInv(inv.num,cb);}
+
+
+function fillTpl(tpl,inv,a){
+  const d=fD(inv.evtDate,inv.lang||'fr');
+  return tpl
+    .replace(/{clientName}/g,inv.clientName||'')
+    .replace(/{num}/g,inv.num||'')
+    .replace(/{evtName}/g,inv.evtName||'')
+    .replace(/{evtDate}/g,d)
+    .replace(/{total}/g,f$(inv.total))
+    .replace(/{dueLabel}/g,inv.dueLabel||'')
+    .replace(/{name}/g,a.name||'')
+    .replace(/{phone}/g,a.phone||'')
+    .replace(/{email}/g,a.email||'');
+}
+function emailBody(inv,a,type='invoice'){
+  const lang=inv.lang||'fr';
+  const gAd=gA();
+  if(type==='reminder'){
+    const tpl=lang==='fr'?(gAd.msgRemFR||'Rappel facture {num} — {total} dû le {dueLabel}'):(gAd.msgRemEN||'Reminder invoice {num} — {total} due {dueLabel}');
+    return fillTpl(tpl,inv,a);
+  }
+  const tpl=lang==='fr'?(gAd.msgFR||'Facture {num} — {total}'):(gAd.msgEN||'Invoice {num} — {total}');
+  return fillTpl(tpl,inv,a);
 }
 async function sendEJS(inv,a,type){
   const body=emailBody(inv,a,type);const lang=inv.lang||'fr';
@@ -399,15 +552,79 @@ async function sendEJS(inv,a,type){
   const r=await fetch('https://api.emailjs.com/api/v1.0/email/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:a.ejsServiceId,template_id:a.ejsTemplateId,user_id:a.ejsPublicKey,template_params:{to_email:inv.clientEmail,to_name:inv.clientName,from_name:a.name,company:a.company,phone:a.phone,reply_to:a.email,inv_num:inv.num,evt_name:inv.evtName,evt_date:fD(inv.evtDate,inv.lang),total:f$(inv.total),due_label:inv.dueLabel,subject:subj,message_fr:lang==='fr'?body:'',message_en:lang==='en'?body:''}})});
   return r.ok;
 }
-async function emailInv(num){
-  const inv=gI().find(i=>i.num===num);if(!inv)return;const a=gA();
-  if(a.ejsServiceId&&a.ejsTemplateId&&a.ejsPublicKey){toast('Envoi…');const ok=await sendEJS(inv,a,'invoice');toast(ok?'Envoyé ✓':'Erreur envoi',ok?'success':'error');}
-  else{const b=encodeURIComponent(emailBody(inv,a,'invoice'));const s=encodeURIComponent(inv.lang==='fr'?`Facture ${inv.num} - ${inv.evtName}`:`Invoice ${inv.num}`);window.location.href=`mailto:${inv.clientEmail}?subject=${s}&body=${b}`;}
+function emailInv(num){
+  showEmailPreview(num,'invoice');
 }
-async function remInv(num){
-  const inv=gI().find(i=>i.num===num);if(!inv)return;const a=gA();
-  if(a.ejsServiceId&&a.ejsTemplateId&&a.ejsPublicKey){toast('Envoi rappel…');const ok=await sendEJS(inv,a,'reminder');toast(ok?'Rappel envoyé ✓':'Erreur',ok?'success':'error');}
-  else{const b=encodeURIComponent(emailBody(inv,a,'reminder'));const s=encodeURIComponent(inv.lang==='fr'?`Rappel - Facture ${inv.num}`:`Reminder - Invoice ${inv.num}`);window.location.href=`mailto:${inv.clientEmail}?subject=${s}&body=${b}`;}
+function remInv(num){
+  showEmailPreview(num,'reminder');
+}
+function showEmailPreview(num,type){
+  const inv=gI().find(i=>i.num===num);if(!inv)return;
+  const a=gA();
+  const body=emailBody(inv,a,type);
+  const lang=inv.lang||'fr';
+  const subj=type==='reminder'?(lang==='fr'?`Rappel - Facture ${inv.num}`:`Reminder - Invoice ${inv.num}`):(lang==='fr'?`Facture ${inv.num} - ${inv.evtName}`:`Invoice ${inv.num} - ${inv.evtName}`);
+  const taxRows=inv.taxable?`<tr><td>Sous-total</td><td style="text-align:right">${f$(inv.sub)}</td></tr><tr><td>TPS</td><td style="text-align:right">${f$(inv.tpsA)}</td></tr><tr><td>TVQ</td><td style="text-align:right">${f$(inv.tvqA)}</td></tr>`:'';
+  showM(`<div class="mc" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-weight:700;font-size:17px">${type==='reminder'?'🔔 Aperçu rappel':'📧 Aperçu courriel'}</div>
+      <button onclick="closeM()" style="background:none;font-size:22px">✕</button>
+    </div>
+    <div style="background:var(--gray-50);border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px">
+      <div style="margin-bottom:6px"><strong>À :</strong> ${inv.clientEmail||'—'}</div>
+      <div style="margin-bottom:6px"><strong>Sujet :</strong> ${subj}</div>
+      <div style="margin-bottom:6px"><strong>Message :</strong></div>
+      <textarea id="email-preview-body" class="fc" rows="10" style="font-size:13px;white-space:pre-wrap">${body}</textarea>
+    </div>
+    <details style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--blue);font-weight:600">📄 Aperçu facture</summary>
+      <div style="margin-top:12px;border:1px solid var(--gray-200);border-radius:8px;padding:16px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div><div style="font-size:20px;font-weight:800;color:var(--blue)">${lang==='en'?'INVOICE':'FACTURE'} ${inv.num}</div><div style="color:var(--gray-500)">${a.company||a.name}</div></div>
+          <div style="text-align:right"><strong>${inv.clientName}</strong><div style="color:var(--gray-500)">${inv.evtName}</div><div style="color:var(--gray-500)">${fD(inv.evtDate,lang)}</div></div>
+        </div>
+        ${(inv.lines||[]).map(l=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--gray-100)"><span>${l.name}</span><span>${f$(l.amount)}</span></div>`).join('')}
+        ${inv.gas?`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--gray-100)"><span>Essence</span><span>${f$(inv.gasAmt)}</span></div>`:''}
+        <table style="margin-left:auto;width:220px;border-collapse:collapse;margin-top:8px"><tbody>${taxRows}<tr style="font-weight:800;color:var(--blue);border-top:2px solid var(--gray-200)"><td style="padding:6px 0">Total</td><td style="text-align:right">${f$(inv.total)}</td></tr></tbody></table>
+      </div>
+    </details>
+    <div class="ma">
+      <button class="btn bs" onclick="closeM()">Annuler</button>
+      <button class="btn bp" onclick="doSendEmail('${num}','${type}')">📧 Envoyer + joindre PDF</button>
+    </div>
+  </div>`);
+}
+async function doSendEmail(num,type){
+  const inv=gI().find(i=>i.num===num);if(!inv)return;
+  const a=gA();
+  const editedBody=document.getElementById('email-preview-body')?.value||emailBody(inv,a,type);
+  const lang=inv.lang||'fr';
+  const subj=type==='reminder'?(lang==='fr'?`Rappel - Facture ${inv.num}`:`Reminder - Invoice ${inv.num}`):(lang==='fr'?`Facture ${inv.num} - ${inv.evtName}`:`Invoice ${inv.num} - ${inv.evtName}`);
+  closeM();
+  // Step 1: generate and share PDF
+  toast('Génération du PDF…');
+  try{
+    generatePDF(inv,a,async(pdfBlob)=>{
+      const fname=`${lang==='en'?'Invoice':'Facture'}-${inv.num}.pdf`;
+      const file=new File([pdfBlob],fname,{type:'application/pdf'});
+      // Step 2: open mailto
+      const b=encodeURIComponent(editedBody);const s=encodeURIComponent(subj);
+      const mailUrl=`mailto:${inv.clientEmail}?subject=${s}&body=${b}`;
+      if(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+        // iOS share sheet with PDF — user can pick Mail and PDF is attached
+        await navigator.share({files:[file],title:subj,text:editedBody});
+      } else {
+        // Fallback: download PDF then open mail
+        const url=URL.createObjectURL(pdfBlob);
+        const a2=document.createElement('a');a2.href=url;a2.download=fname;a2.click();
+        setTimeout(()=>window.open(mailUrl,'_self'),800);
+      }
+    });
+  }catch(e){
+    // If PDF fails, just open mail
+    const b=encodeURIComponent(editedBody);const s=encodeURIComponent(subj);
+    window.open(`mailto:${inv.clientEmail}?subject=${s}&body=${b}`,'_self');
+  }
 }
 
 // ═══ INVOICE WIZARD ═══
@@ -722,13 +939,34 @@ function expTaxDetailCSV(){
   const yr=String(tY);
   const invs=gI().filter(i=>i.status==='paid'&&(i.evtDate?.startsWith(yr)||i.createdAt?.startsWith(yr)));
   const exps=gE().filter(e=>e.date?.startsWith(yr));
+  const tpsP=invs.reduce((s,i)=>s+(i.tpsA||0),0),tvqP=invs.reduce((s,i)=>s+(i.tvqA||0),0);
+  const totP=invs.reduce((s,i)=>s+(i.total||0),0),subP=invs.reduce((s,i)=>s+(i.sub||0),0);
+  const tpsR=exps.reduce((s,e)=>s+(e.tpsBiz||0),0),tvqR=exps.reduce((s,e)=>s+(e.tvqBiz||0),0);
+  const totE=exps.reduce((s,e)=>s+(e.ttc||0),0);
   const rows=[
-    ['TYPE','DATE','DESCRIPTION','SOUS-TOTAL','TPS','TVQ','TOTAL'],
-    ...invs.map(i=>['FACTURE',i.evtDate||i.createdAt?.slice(0,10),i.num+' - '+i.clientName+' - '+i.evtName,f$(i.sub),f$(i.tpsA),f$(i.tvqA),f$(i.total)]),
-    ['','','','','','',''],
-    ...exps.map(e=>['DEPENSE',e.date,e.type+' - '+(e.note||''),f$(e.htBiz),f$(e.tpsBiz),f$(e.tvqBiz),f$(e.ttc)]),
+    ['RAPPORT DE TAXES — FacturePro','Année: '+yr,'','','','','','',''],
+    ['','','','','','','','',''],
+    ['=== FACTURES PAYÉES ===','','','','','','','',''],
+    ['#','Numéro','Client','Événement','Date événement','Date paiement','Sous-total','TPS perçue','TVQ perçue','Total'],
+    ...invs.map((i,n)=>[n+1,i.num,i.clientName,i.evtName,i.evtDate||'',i.createdAt?.slice(0,10)||'',i.sub,i.tpsA,i.tvqA,i.total]),
+    ['','','','','','TOTAL FACTURES',subP,tpsP,tvqP,totP],
+    ['','','','','','','','','',''],
+    ['=== DÉPENSES ===','','','','','','','',''],
+    ['#','Type','Note','Date','% Entreprise','Montant TTC','HT Affaires','TPS récupérable','TVQ récupérable',''],
+    ...exps.map((e,n)=>[n+1,e.type,e.note||'',e.date||'',e.pctBiz+'%',e.ttc,e.htBiz,e.tpsBiz,e.tvqBiz,'']),
+    ['','','','','','TOTAL DÉPENSES',totE,'',tpsR,tvqR],
+    ['','','','','','','','','',''],
+    ['=== RÉSUMÉ TAXES ===','','','','','','','',''],
+    ['','TPS perçue','','','','','',tpsP,'',''],
+    ['','TPS récupérable','','','','','','-'+tpsR,'',''],
+    ['','TPS NETTE À REMETTRE','','','','','',Math.round((tpsP-tpsR)*100)/100,'',''],
+    ['','TVQ perçue','','','','','','',tvqP,''],
+    ['','TVQ récupérable','','','','','','','-'+tvqR,''],
+    ['','TVQ NETTE À REMETTRE','','','','','','',Math.round((tvqP-tvqR)*100)/100,''],
+    ['','TOTAL TPS+TVQ À REMETTRE','','','','','',Math.round((tpsP-tpsR)*100)/100,Math.round((tvqP-tvqR)*100)/100,Math.round((tpsP-tpsR+tvqP-tvqR)*100)/100],
   ];
-  dlCSV(rows.map(r=>r.map(c=>'"'+(c||'')+'"').join(',')).join('\n'),'rapport-taxes-'+yr+'.csv');
+  dlCSV(rows.map(r=>r.map(c=>'"'+(c!==undefined?c:'')+'"').join(',')).join('\n'),'rapport-taxes-complet-'+yr+'.csv');
+  toast('CSV exporté ✓','success');
 }
 function rTax(){
   const yr=String(tY);
@@ -753,12 +991,17 @@ function rTax(){
   <div class="card" style="margin-bottom:12px">
     <div class="ct">📄 Factures payées — TPS perçue</div>
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--gray-200);font-size:12px;color:var(--gray-500)"><span>Facture</span><span>Client</span><span>Sous-total</span><span>TPS</span><span>TVQ</span></div>
-    ${fI.length?fI.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px;gap:8px">
-      <span style="font-weight:600;min-width:70px">${i.num}</span>
-      <span style="flex:1;color:var(--gray-600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.clientName}</span>
-      <span style="color:var(--gray-700);white-space:nowrap">${f$(i.sub)}</span>
-      <span style="color:var(--blue);white-space:nowrap">${f$(i.tpsA)}</span>
-      <span style="color:var(--blue);white-space:nowrap">${f$(i.tvqA)}</span>
+    ${fI.length?fI.map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);font-size:13px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-weight:700;color:var(--blue)">${i.num}</span>
+        <span style="flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.clientName}</span>
+        <span style="font-weight:700;white-space:nowrap">${f$(i.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;color:var(--gray-500);font-size:12px;margin-top:3px;gap:8px">
+        <span>📅 ${fD(i.evtDate)||'—'} · ${i.evtName||''}</span>
+        <span>TPS: ${f$(i.tpsA)} | TVQ: ${f$(i.tvqA)}</span>
+      </div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Dû: ${i.dueLabel||'—'} · Sous-total: ${f$(i.sub)}</div>
     </div>`).join(''):'<div style="padding:12px 0;color:var(--gray-500);font-size:13px">Aucune facture payée cette période</div>'}
     <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;border-top:2px solid var(--gray-200);margin-top:4px;font-size:14px">
       <span>Total TPS perçue</span><span style="color:var(--blue)">${f$(tpsP)}</span>
@@ -770,12 +1013,16 @@ function rTax(){
   <div class="card" style="margin-bottom:12px">
     <div class="ct">💳 Dépenses — TPS/TVQ récupérable</div>
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--gray-200);font-size:12px;color:var(--gray-500)"><span>Date</span><span>Type / Note</span><span>TTC</span><span>TPS</span><span>TVQ</span></div>
-    ${fE.length?fE.map(e=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px;gap:8px">
-      <span style="color:var(--gray-500);white-space:nowrap;min-width:70px">${e.date||''}</span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.type}${e.note?' — '+e.note:''}</span>
-      <span style="color:var(--gray-700);white-space:nowrap">${f$(e.ttc)}</span>
-      <span style="color:var(--green);white-space:nowrap">${f$(e.tpsBiz)}</span>
-      <span style="color:var(--green);white-space:nowrap">${f$(e.tvqBiz)}</span>
+    ${fE.length?fE.map(e=>`<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);font-size:13px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.type}${e.note?' — '+e.note:''}</span>
+        <span style="font-weight:700;white-space:nowrap">${f$(e.ttc)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;color:var(--gray-500);font-size:12px;margin-top:3px">
+        <span>📅 ${e.date||'—'} · ${e.pctBiz||100}% affaires</span>
+        <span style="color:var(--green)">TPS: ${f$(e.tpsBiz)} | TVQ: ${f$(e.tvqBiz)}</span>
+      </div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:2px">Montant affaires HT: ${f$(e.htBiz)}</div>
     </div>`).join(''):'<div style="padding:12px 0;color:var(--gray-500);font-size:13px">Aucune dépense cette période</div>'}
     <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;border-top:2px solid var(--gray-200);margin-top:4px;font-size:14px">
       <span>Total TPS récupérable</span><span style="color:var(--green)">${f$(tpsR)}</span>
@@ -953,22 +1200,22 @@ function rSettings(){
     <div class="fr"><div class="fg"><label class="fl">N° TPS</label><input class="fc" id="stps" value="${a.tpsNum||''}"></div><div class="fg"><label class="fl">N° TVQ</label><input class="fc" id="stvq" value="${a.tvqNum||''}"></div></div>
     <button class="btn bp" onclick="saveSett()">Sauvegarder le profil</button>
   </div>
-  <div class="card" style="margin-bottom:16px">
-    <div class="ct">📧 EmailJS ${ejsOk?'<span class="badge bge">✅ Configuré</span>':''}</div>
-    <details style="margin-bottom:12px"><summary style="cursor:pointer;font-size:13px;color:var(--blue);font-weight:600">Instructions EmailJS</summary>
-      <div style="font-size:13px;color:var(--gray-600);margin-top:8px;line-height:1.7">1. Compte sur <a href="https://emailjs.com" target="_blank" style="color:var(--blue)">emailjs.com</a><br>2. Ajoutez un service Outlook<br>3. Créez template: Sujet={{subject}}, Corps={{message_fr}}{{message_en}}<br>4. Copiez vos identifiants ci-dessous</div>
-    </details>
-    <div class="fg"><label class="fl">Service ID</label><input class="fc" id="sejs1" value="${a.ejsServiceId||''}" placeholder="service_xxxxxxx"></div>
-    <div class="fg"><label class="fl">Template ID</label><input class="fc" id="sejs2" value="${a.ejsTemplateId||''}" placeholder="template_xxxxxxx"></div>
-    <div class="fg"><label class="fl">Public Key</label><input class="fc" id="sejs3" value="${a.ejsPublicKey||''}" placeholder="xxxxxxxxxxxx"></div>
-    <button class="btn bp" onclick="saveSett()">Sauvegarder EmailJS</button>
-  </div>
+
   <div class="card" style="margin-bottom:16px">
     <div class="ct">🤖 Anthropic API</div>
     <div class="fg"><label class="fl">Clé API</label><input class="fc" id="sant" type="password" value="${a.anthropicKey||''}" placeholder="sk-ant-…"></div>
     <div class="ct" style="margin-top:12px">☁️ Cloudinary</div>
     <div class="fr"><div class="fg"><label class="fl">Cloud Name</label><input class="fc" id="scln" value="${a.cloudName||''}"></div><div class="fg"><label class="fl">Upload Preset</label><input class="fc" id="sclp" value="${a.cloudPreset||''}"></div></div>
     <button class="btn bp" onclick="saveSett()">Sauvegarder</button>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="ct">✉️ Templates de messages</div>
+    <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">Variables disponibles: {clientName} {num} {evtName} {evtDate} {total} {dueLabel} {name} {phone} {email}</p>
+    <div class="fg"><label class="fl">Message facture — Français</label><textarea class="fc" id="smsgfr" rows="8" style="font-size:13px">${a.msgFR||''}</textarea></div>
+    <div class="fg"><label class="fl">Message facture — English</label><textarea class="fc" id="smsgen" rows="8" style="font-size:13px">${a.msgEN||''}</textarea></div>
+    <div class="fg"><label class="fl">Rappel — Français</label><textarea class="fc" id="smsgremfr" rows="6" style="font-size:13px">${a.msgRemFR||''}</textarea></div>
+    <div class="fg"><label class="fl">Rappel — English</label><textarea class="fc" id="smsgremen" rows="6" style="font-size:13px">${a.msgRemEN||''}</textarea></div>
+    <button class="btn bp" onclick="saveSett()">Sauvegarder les templates</button>
   </div>
   <div class="card">
     <div class="ct">🏷️ Types de dépenses</div>
@@ -989,6 +1236,11 @@ function saveSett(){
   a.tpsNum=g('stps')||a.tpsNum;a.tvqNum=g('stvq')||a.tvqNum;
   a.ejsServiceId=g('sejs1')||a.ejsServiceId;a.ejsTemplateId=g('sejs2')||a.ejsTemplateId;a.ejsPublicKey=g('sejs3')||a.ejsPublicKey;
   a.anthropicKey=g('sant')||a.anthropicKey;a.cloudName=g('scln')||a.cloudName;a.cloudPreset=g('sclp')||a.cloudPreset;
+  const gv=id=>document.getElementById(id)?.value;
+  if(gv('smsgfr'))a.msgFR=gv('smsgfr');
+  if(gv('smsgen'))a.msgEN=gv('smsgen');
+  if(gv('smsgremfr'))a.msgRemFR=gv('smsgremfr');
+  if(gv('smsgremen'))a.msgRemEN=gv('smsgremen');
   sv(SK.a,a);buildNavs();toast('Paramètres sauvegardés ✓','success');
 }
 function addET(){const t=gET();t.push('Nouveau type');sv(SK.et,t);render('settings');initSE();}
