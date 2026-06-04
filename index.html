@@ -718,6 +718,18 @@ function expMileCSV(){const m=gM();const y=cY();const rows=[['Date','De','À','R
 
 // ═══ TAXES ═══
 let tY=cY(),tP='annual';
+function expTaxDetailCSV(){
+  const yr=String(tY);
+  const invs=gI().filter(i=>i.status==='paid'&&(i.evtDate?.startsWith(yr)||i.createdAt?.startsWith(yr)));
+  const exps=gE().filter(e=>e.date?.startsWith(yr));
+  const rows=[
+    ['TYPE','DATE','DESCRIPTION','SOUS-TOTAL','TPS','TVQ','TOTAL'],
+    ...invs.map(i=>['FACTURE',i.evtDate||i.createdAt?.slice(0,10),i.num+' - '+i.clientName+' - '+i.evtName,f$(i.sub),f$(i.tpsA),f$(i.tvqA),f$(i.total)]),
+    ['','','','','','',''],
+    ...exps.map(e=>['DEPENSE',e.date,e.type+' - '+(e.note||''),f$(e.htBiz),f$(e.tpsBiz),f$(e.tvqBiz),f$(e.ttc)]),
+  ];
+  dlCSV(rows.map(r=>r.map(c=>'"'+(c||'')+'"').join(',')).join('\n'),'rapport-taxes-'+yr+'.csv');
+}
 function rTax(){
   const yr=String(tY);
   const invs=gI().filter(i=>i.status==='paid'&&(i.evtDate?.startsWith(yr)||i.createdAt?.startsWith(yr)));
@@ -728,26 +740,59 @@ function rTax(){
   const tpsP=fI.reduce((s,i)=>s+(i.tpsA||0),0),tvqP=fI.reduce((s,i)=>s+(i.tvqA||0),0);
   const tpsR=fE.reduce((s,e)=>s+(e.tpsBiz||0),0),tvqR=fE.reduce((s,e)=>s+(e.tvqBiz||0),0);
   const tpsN=tpsP-tpsR,tvqN=tvqP-tvqR;
-  return `<div class="ph"><h1 class="pt">Rapport de taxes</h1></div>
+  return `<div class="ph"><h1 class="pt">Rapport de taxes</h1><button class="btn bs bsm" onclick="expTaxDetailCSV()">📥 Exporter CSV</button></div>
   <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
     <select class="fc" style="max-width:90px" onchange="tY=parseInt(this.value);render('taxes')">${[cY(),cY()-1,cY()-2].map(y=>`<option ${y===tY?'selected':''}>${y}</option>`).join('')}</select>
     <div class="tabs" style="border:none;margin:0">${[['Q1','T1'],['Q2','T2'],['Q3','T3'],['Q4','T4'],['annual','Annuel']].map(([v,l])=>`<button class="tb${tP===v?' active':''}" onclick="tP='${v}';render('taxes')">${l}</button>`).join('')}</div>
   </div>
-  <div class="card" style="margin-bottom:12px">
-    <div class="ct">TPS</div>
-    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TPS perçue (factures payées)</span><span style="font-weight:600">${f$(tpsP)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TPS récupérable (dépenses)</span><span style="font-weight:600">− ${f$(tpsR)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:800;font-size:17px;color:${tpsN>=0?'var(--red)':'var(--green)'}"><span>TPS nette à remettre</span><span>${f$(tpsN)}</span></div>
-  </div>
-  <div class="card" style="margin-bottom:12px">
-    <div class="ct">TVQ</div>
-    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TVQ perçue (factures payées)</span><span style="font-weight:600">${f$(tvqP)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TVQ récupérable (dépenses)</span><span style="font-weight:600">− ${f$(tvqR)}</span></div>
-    <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:800;font-size:17px;color:${tvqN>=0?'var(--red)':'var(--green)'}"><span>TVQ nette à remettre</span><span>${f$(tvqN)}</span></div>
-  </div>
-  <div style="padding:16px;background:var(--blue-light);border-radius:10px;text-align:center">
+  <div style="padding:16px;background:var(--blue-light);border-radius:10px;text-align:center;margin-bottom:16px">
     <div style="font-size:13px;color:var(--blue);font-weight:600">Total à remettre (TPS + TVQ)</div>
     <div style="font-size:28px;font-weight:800;color:var(--blue)">${f$(tpsN+tvqN)}</div>
+    <div style="font-size:13px;color:var(--blue);margin-top:4px">TPS: ${f$(tpsN)} | TVQ: ${f$(tvqN)}</div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="ct">📄 Factures payées — TPS perçue</div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--gray-200);font-size:12px;color:var(--gray-500)"><span>Facture</span><span>Client</span><span>Sous-total</span><span>TPS</span><span>TVQ</span></div>
+    ${fI.length?fI.map(i=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px;gap:8px">
+      <span style="font-weight:600;min-width:70px">${i.num}</span>
+      <span style="flex:1;color:var(--gray-600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.clientName}</span>
+      <span style="color:var(--gray-700);white-space:nowrap">${f$(i.sub)}</span>
+      <span style="color:var(--blue);white-space:nowrap">${f$(i.tpsA)}</span>
+      <span style="color:var(--blue);white-space:nowrap">${f$(i.tvqA)}</span>
+    </div>`).join(''):'<div style="padding:12px 0;color:var(--gray-500);font-size:13px">Aucune facture payée cette période</div>'}
+    <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;border-top:2px solid var(--gray-200);margin-top:4px;font-size:14px">
+      <span>Total TPS perçue</span><span style="color:var(--blue)">${f$(tpsP)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700;font-size:14px">
+      <span>Total TVQ perçue</span><span style="color:var(--blue)">${f$(tvqP)}</span>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="ct">💳 Dépenses — TPS/TVQ récupérable</div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--gray-200);font-size:12px;color:var(--gray-500)"><span>Date</span><span>Type / Note</span><span>TTC</span><span>TPS</span><span>TVQ</span></div>
+    ${fE.length?fE.map(e=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px;gap:8px">
+      <span style="color:var(--gray-500);white-space:nowrap;min-width:70px">${e.date||''}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.type}${e.note?' — '+e.note:''}</span>
+      <span style="color:var(--gray-700);white-space:nowrap">${f$(e.ttc)}</span>
+      <span style="color:var(--green);white-space:nowrap">${f$(e.tpsBiz)}</span>
+      <span style="color:var(--green);white-space:nowrap">${f$(e.tvqBiz)}</span>
+    </div>`).join(''):'<div style="padding:12px 0;color:var(--gray-500);font-size:13px">Aucune dépense cette période</div>'}
+    <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;border-top:2px solid var(--gray-200);margin-top:4px;font-size:14px">
+      <span>Total TPS récupérable</span><span style="color:var(--green)">${f$(tpsR)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;font-weight:700;font-size:14px">
+      <span>Total TVQ récupérable</span><span style="color:var(--green)">${f$(tvqR)}</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct">📊 Résumé</div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TPS perçue</span><span>${f$(tpsP)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TPS récupérable</span><span>− ${f$(tpsR)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-200);font-weight:700;color:${tpsN>=0?'var(--red)':'var(--green)'}"><span>TPS nette</span><span>${f$(tpsN)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100);margin-top:4px"><span>TVQ perçue</span><span>${f$(tvqP)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100)"><span>TVQ récupérable</span><span>− ${f$(tvqR)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700;color:${tvqN>=0?'var(--red)':'var(--green)'}"><span>TVQ nette</span><span>${f$(tvqN)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:12px 0;font-weight:800;font-size:18px;color:${(tpsN+tvqN)>=0?'var(--red)':'var(--green)'};border-top:2px solid var(--gray-200);margin-top:8px"><span>TOTAL À REMETTRE</span><span>${f$(tpsN+tvqN)}</span></div>
   </div>`;
 }
 
