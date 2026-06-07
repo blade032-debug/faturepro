@@ -238,6 +238,7 @@ const PAGES=[
   {id:'clients',icon:'👥',label:'Clients'},
   {id:'services',icon:'🛠️',label:'Services'},
   {id:'exports',icon:'📤',label:'Exports'},
+  {id:'send',icon:'📬',label:'Envoi factures'},
   {id:'help',icon:'❓',label:'Aide'},
   {id:'settings',icon:'⚙️',label:'Compte'}
 ];
@@ -255,7 +256,7 @@ function nav(page){
   const pg=PAGES.find(p=>p.id===page);
   document.getElementById('tt').textContent=pg?pg.label:'FacturePro';
   const ta=document.getElementById('ta');
-  ta.style.display=['invoices','quotes','expenses','clients','services'].includes(page)?'block':'none';
+  ta.style.display=['invoices','quotes','expenses','clients','services','send'].includes(page)?'block':'none';
   render(page);
 }
 function openDrw(){document.getElementById('drawer').classList.add('open');document.getElementById('dov').classList.add('open')}
@@ -278,7 +279,7 @@ function closeM(){document.getElementById('mc').innerHTML=''}
 
 // ═══ RENDER ═══
 function render(p){
-  const fns={dash:rDash,invoices:rInv,quotes:rQuotes,expenses:rExp,mileage:rMile,taxes:rTax,clients:rClients,services:rSvc,exports:rExports,help:rHelp,settings:rSettings};
+  const fns={dash:rDash,invoices:rInv,quotes:rQuotes,send:rSend,expenses:rExp,mileage:rMile,taxes:rTax,clients:rClients,services:rSvc,exports:rExports,help:rHelp,settings:rSettings};
   document.getElementById('pc').innerHTML=(fns[p]||function(){return '<p>Page en construction</p>'})();
   if(p==='settings')initSE();
 }
@@ -392,7 +393,7 @@ function printOneInv(num,cb=null){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
   const W=215.9,H=279.4;
-  const blue=[29,78,216],gray=[100,116,139],dark=[30,41,59],light=[241,245,249],white=[255,255,255],green=[22,163,74];
+  const blue=[59,91,179],gray=[100,116,139],dark=[30,41,59],light=[241,245,249],white=[255,255,255],green=[22,163,74];
 
   // Background header band
   doc.setFillColor(...blue);
@@ -410,15 +411,8 @@ function printOneInv(num,cb=null){
   doc.text(inv.num,14,32);
   doc.text((lang==='fr'?'Date événement: ':'Event date: ')+fD(inv.evtDate,lang),14,39);
 
-  // Status badge
-  const stLabel={paid:lang==='fr'?'PAYÉE':'PAID',unpaid:lang==='fr'?'IMPAYÉE':'UNPAID',draft:lang==='fr'?'BROUILLON':'DRAFT'};
-  const stColor={paid:green,unpaid:[234,88,12],draft:gray};
-  const st=stLabel[inv.status]||inv.status.toUpperCase();
-  doc.setFillColor(...(stColor[inv.status]||gray));
-  doc.roundedRect(W-50,8,36,12,3,3,'F');
-  doc.setFont('helvetica','bold');doc.setFontSize(9);
-  doc.setTextColor(...white);
-  doc.text(st,W-32,16,{align:'center'});
+  // Status labels for info box only
+  const stLabel={paid:lang==='fr'?'Payée':'Paid',unpaid:lang==='fr'?'À payer':'Unpaid',draft:lang==='fr'?'Brouillon':'Draft'};
 
   // FROM block
   doc.setTextColor(...dark);
@@ -647,7 +641,7 @@ function rWiz(type){
     const dueOpts=[['receipt','À la réception'],['event','Le jour de l\'événement'],['net15','Net 15 jours'],['net30','Net 30 jours'],['custom','Date personnalisée']];
     body=`<div class="fr">
       <div class="fg"><label class="fl">Langue</label><select class="fc" id="wl"><option value="fr"${WZ.lang==='fr'?' selected':''}>Français</option><option value="en"${WZ.lang==='en'?' selected':''}>English</option></select></div>
-      <div class="fg"><label class="fl">Numéro</label><input class="fc" value="${WZ.num}" readonly style="background:var(--gray-100)"></div>
+      <div class="fg"><label class="fl">Numéro</label><input class="fc" id="wnum" value="${WZ.num}" placeholder="2026-01"></div>
     </div>
     <div class="fg"><label class="fl">Client *</label>
       <select class="fc" id="wcl" onchange="pickCl(this.value)">
@@ -735,6 +729,7 @@ function wCalc(){
 function wNext(type){
   if(WZ._step===1){
     WZ.lang=document.getElementById('wl')?.value||WZ.lang;
+    const editedNum=document.getElementById('wnum')?.value?.trim();if(editedNum)WZ.num=editedNum;
     if(!WZ.clientId&&!WZ.clientName){toast('Client requis','error');return;}
     WZ.evtName=document.getElementById('wen')?.value||'';
     if(!WZ.evtName){toast('Nom événement requis','error');return;}
@@ -1302,3 +1297,211 @@ init();
 </script>
 </body>
 </html>
+<script>
+// ═══ SEND PAGE ═══
+let sendClientId=null;
+let sendSelected=[];
+
+function rSend(){
+  const clients=gC();
+  const invs=gI();
+  const unpaid=invs.filter(i=>i.status==='unpaid');
+  
+  if(!sendClientId){
+    // Show client list with unpaid count
+    const clientsWithUnpaid=clients.map(c=>({...c,unpaidInvs:unpaid.filter(i=>i.clientId==c.id)})).filter(c=>c.unpaidInvs.length>0);
+    return `<div class="ph"><h1 class="pt">📬 Envoi factures</h1></div>
+    ${clientsWithUnpaid.length?`
+    <p style="font-size:14px;color:var(--gray-500);margin-bottom:16px">Sélectionne un client pour voir ses factures impayées.</p>
+    ${clientsWithUnpaid.map(c=>`
+      <div class="li" onclick="sendClientId='${c.id}';render('send')">
+        <div class="lii">
+          <div class="lin">${c.name}${c.company?' — '+c.company:''}</div>
+          <div class="lis">${c.unpaidInvs.length} facture(s) impayée(s) · ${f$(c.unpaidInvs.reduce((s,i)=>s+(i.total||0),0))}</div>
+        </div>
+        <div style="font-size:22px;color:var(--gray-400)">›</div>
+      </div>`).join('')}
+    `:`<div class="card" style="text-align:center;padding:40px;color:var(--gray-500)">
+      <div style="font-size:40px;margin-bottom:12px">🎉</div>
+      <div style="font-weight:700;margin-bottom:6px">Aucune facture impayée!</div>
+      <div style="font-size:14px">Tous vos clients sont à jour.</div>
+    </div>`}`;
+  }
+
+  // Show unpaid invoices for selected client
+  const client=gC().find(c=>c.id==sendClientId);
+  const clientInvs=unpaid.filter(i=>i.clientId==sendClientId);
+  if(!clientInvs.length){sendClientId=null;return rSend();}
+
+  const selTotal=clientInvs.filter(i=>sendSelected.includes(i.num)).reduce((s,i)=>s+(i.total||0),0);
+  const selTPS=clientInvs.filter(i=>sendSelected.includes(i.num)).reduce((s,i)=>s+(i.tpsA||0),0);
+  const selTVQ=clientInvs.filter(i=>sendSelected.includes(i.num)).reduce((s,i)=>s+(i.tvqA||0),0);
+  const selSub=clientInvs.filter(i=>sendSelected.includes(i.num)).reduce((s,i)=>s+(i.sub||0),0);
+
+  return `
+  <div class="ph">
+    <div>
+      <button onclick="sendClientId=null;sendSelected=[];render('send')" style="background:none;color:var(--blue);font-size:14px;font-weight:600;padding:0;margin-bottom:6px">← Retour</button>
+      <h1 class="pt">${client?.name||'Client'}</h1>
+      <div class="ps">${clientInvs.length} facture(s) impayée(s)</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="ct" style="margin:0">Sélectionner les factures</div>
+      <button class="btn bs bsm" onclick="sendSelected=${JSON.stringify(clientInvs.map(i=>i.num))};render('send')">Tout sélectionner</button>
+    </div>
+    ${clientInvs.map(i=>`
+      <label style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--gray-100);cursor:pointer">
+        <input type="checkbox" ${sendSelected.includes(i.num)?'checked':''} onchange="if(this.checked){sendSelected.push('${i.num}');}else{sendSelected=sendSelected.filter(n=>n!=='${i.num}');}render('send')" style="width:20px;height:20px;flex-shrink:0">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:14px">${i.num} — ${i.evtName||'—'}</div>
+          <div style="font-size:12px;color:var(--gray-500)">${fD(i.evtDate)} · Dû: ${i.dueLabel||'—'}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700">${f$(i.total)}</div>
+          ${i.taxable?`<div style="font-size:11px;color:var(--gray-400)">TPS+TVQ incl.</div>`:''}
+        </div>
+      </label>`).join('')}
+    ${sendSelected.length?`
+    <div style="margin-top:12px;padding:12px;background:var(--blue-light);border-radius:8px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--gray-600);margin-bottom:4px"><span>Sous-total</span><span>${f$(selSub)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--gray-600);margin-bottom:4px"><span>TPS</span><span>${f$(selTPS)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--gray-600);margin-bottom:8px"><span>TVQ</span><span>${f$(selTVQ)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:800;font-size:16px;color:var(--blue)"><span>Total à payer</span><span>${f$(selTotal)}</span></div>
+    </div>`:''}
+  </div>
+  ${sendSelected.length?`
+  <div style="display:grid;gap:10px">
+    <button class="btn bp bfw" onclick="genSendEmail()">📧 Générer le courriel</button>
+    <button class="btn bs bfw" onclick="genSendPDF()">📄 Générer PDF groupé</button>
+  </div>`:'<div style="text-align:center;color:var(--gray-400);font-size:14px">Sélectionnez au moins une facture</div>'}`;
+}
+
+function genSendEmail(){
+  const client=gC().find(c=>c.id==sendClientId);
+  const invs=gI().filter(i=>sendSelected.includes(i.num));
+  const a=gA();
+  if(!invs.length||!client)return;
+
+  const total=invs.reduce((s,i)=>s+(i.total||0),0);
+  const tps=invs.reduce((s,i)=>s+(i.tpsA||0),0);
+  const tvq=invs.reduce((s,i)=>s+(i.tvqA||0),0);
+  const sub=invs.reduce((s,i)=>s+(i.sub||0),0);
+
+  const lignes=invs.map(i=>`• Facture ${i.num} — ${i.evtName||'—'} (${fD(i.evtDate)})\n  Sous-total: ${f$(i.sub)} | TPS: ${f$(i.tpsA)} | TVQ: ${f$(i.tvqA)} | Total: ${f$(i.total)}\n  Dû: ${i.dueLabel||'—'}`).join('\n\n');
+
+  const sujet=`Factures impayées — ${a.company||a.name}`;
+  const msg=`Bonjour ${client.name},\n\nVeuillez trouver ci-dessous le détail de vos factures en attente.\n\n${'─'.repeat(40)}\n\n${lignes}\n\n${'─'.repeat(40)}\n\nRÉSUMÉ\nSous-total : ${f$(sub)}\nTPS (5%) : ${f$(tps)}\nTVQ (9.975%) : ${f$(tvq)}\nTOTAL À PAYER : ${f$(total)}\n\n${'─'.repeat(40)}\n\nMerci de procéder au paiement dès que possible.\n\nCordialement,\n${a.name}\n${a.phone||''}\n${a.email||''}`;
+
+  showM(`<div class="mc" style="max-width:640px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-weight:700;font-size:17px">📧 Courriel généré</div>
+      <button onclick="closeM()" style="background:none;font-size:22px">✕</button>
+    </div>
+    <div style="background:var(--gray-50);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+      <div style="margin-bottom:6px"><strong>À :</strong> ${client.email||'—'}</div>
+      <div><strong>Sujet :</strong> ${sujet}</div>
+    </div>
+    <div style="position:relative;margin-bottom:12px">
+      <textarea id="send-email-body" class="fc" rows="16" style="font-size:13px;font-family:monospace;white-space:pre">${msg}</textarea>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <button class="btn bg2" onclick="copySendEmail()">📋 Copier le message</button>
+      <button class="btn bp" onclick="openMailSend('${client.email||''}','${encodeURIComponent(sujet)}')">📨 Ouvrir dans Mail</button>
+    </div>
+    <button class="btn bs bfw" onclick="closeM()">Fermer</button>
+  </div>`);
+}
+
+function copySendEmail(){
+  const txt=document.getElementById('send-email-body')?.value||'';
+  navigator.clipboard?.writeText(txt).then(()=>toast('Message copié ✓','success')).catch(()=>{
+    document.getElementById('send-email-body').select();document.execCommand('copy');toast('Message copié ✓','success');
+  });
+}
+
+function openMailSend(email,sujet){
+  const txt=document.getElementById('send-email-body')?.value||'';
+  const b=encodeURIComponent(txt);
+  window.open(`mailto:${email}?subject=${sujet}&body=${b}`,'_self');
+}
+
+function genSendPDF(){
+  const invs=gI().filter(i=>sendSelected.includes(i.num));
+  const a=gA();
+  if(!invs.length)return;
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+  const W=215.9;
+  const blue=[59,91,179],gray=[100,116,139],dark=[30,41,59],light=[241,245,249],white=[255,255,255];
+
+  invs.forEach((inv,idx)=>{
+    if(idx>0)doc.addPage();
+    const lang=inv.lang||'fr';
+
+    // Header band
+    doc.setFillColor(...blue);doc.rect(0,0,W,42,'F');
+    doc.setTextColor(...white);doc.setFont('helvetica','bold');doc.setFontSize(28);
+    doc.text(lang==='en'?'INVOICE':'FACTURE',14,22);
+    doc.setFontSize(11);doc.setFont('helvetica','normal');
+    doc.text(inv.num,14,32);
+    doc.text((lang==='fr'?'Date événement: ':'Event date: ')+fD(inv.evtDate,lang),14,39);
+
+    // From
+    doc.setTextColor(...dark);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text(a.company||a.name,14,56);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+    let fy=62;
+    [a.address,[a.city,a.province,a.postal].filter(Boolean).join(' '),a.phone,a.email,a.tpsNum?'TPS: '+a.tpsNum:'',a.tvqNum?'TVQ: '+a.tvqNum:''].filter(Boolean).forEach(l=>{doc.text(l,14,fy);fy+=5;});
+
+    // To
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...blue);doc.text(lang==='en'?'BILL TO':'FACTURER À',W-80,52);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(...dark);doc.text(inv.clientName||'—',W-80,59);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+    let ty=65;
+    [inv.clientAddr,inv.clientCity,inv.clientEmail,inv.clientPhone].filter(Boolean).forEach(l=>{doc.text(l,W-80,ty);ty+=5;});
+
+    // Info box
+    const iy=Math.max(fy,ty)+6;
+    doc.setFillColor(...light);doc.roundedRect(14,iy,W-28,22,3,3,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(...blue);
+    doc.text(lang==='en'?'EVENT':'ÉVÉNEMENT',18,iy+7);doc.text(lang==='en'?'DUE':'DÛ',120,iy+7);
+    doc.setFont('helvetica','normal');doc.setTextColor(...dark);doc.setFontSize(10);
+    doc.text(inv.evtName||'—',18,iy+15);doc.text(inv.dueLabel||'—',120,iy+15);
+
+    // Table
+    const rows=(inv.lines||[]).map(l=>[l.name,f$(l.amount)]);
+    if(inv.gas)rows.push([lang==='en'?'Gas':'Essence',f$(inv.gasAmt)]);
+    if(inv.km)rows.push([`Kilométrage (${inv.kmCount} km)`,f$(inv.kmCount*inv.kmRate)]);
+    doc.autoTable({startY:iy+28,head:[[lang==='en'?'DESCRIPTION':'DESCRIPTION',lang==='en'?'AMOUNT':'MONTANT']],body:rows,margin:{left:14,right:14},styles:{fontSize:10,cellPadding:4,textColor:dark},headStyles:{fillColor:blue,textColor:white,fontStyle:'bold',fontSize:9},columnStyles:{1:{halign:'right',cellWidth:40}},alternateRowStyles:{fillColor:[248,250,252]}});
+
+    // Totals
+    let totY=doc.lastAutoTable.finalY+8;const totW=90;const totX=W-14-totW;
+    if(inv.taxable){
+      [[lang==='en'?'Subtotal':'Sous-total',inv.sub],['TPS (5%)',inv.tpsA],['TVQ (9.975%)',inv.tvqA]].forEach(([label,val])=>{
+        doc.setFillColor(...light);doc.rect(totX,totY,totW,8,'F');
+        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(...gray);
+        doc.text(label,totX+4,totY+5.5);doc.text(f$(val),W-18,totY+5.5,{align:'right'});totY+=9;
+      });
+    }
+    doc.setFillColor(...blue);doc.rect(totX,totY,totW,12,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(...white);
+    doc.text('TOTAL',totX+4,totY+8.5);doc.text(f$(inv.total),W-18,totY+8.5,{align:'right'});
+
+    // Footer
+    doc.setDrawColor(...light);doc.setLineWidth(0.5);doc.line(14,274,W-14,274);
+    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(...gray);
+    doc.text((a.company||a.name)+' • '+(a.email||'')+' • '+(a.phone||''),W/2,278,{align:'center'});
+  });
+
+  const client=gC().find(c=>c.id==sendClientId);
+  const fname=`Factures-${client?.name||'client'}-${today()}.pdf`;
+  const pdfBlob=doc.output('blob');
+  if(navigator.share&&navigator.canShare&&navigator.canShare({files:[new File([pdfBlob],fname,{type:'application/pdf'})]})){
+    navigator.share({files:[new File([pdfBlob],fname,{type:'application/pdf'})],title:fname}).catch(()=>{});
+  } else {
+    const url=URL.createObjectURL(pdfBlob);const a2=document.createElement('a');a2.href=url;a2.download=fname;a2.click();
+  }
+  toast('PDF généré ✓','success');
+}
+</script>
